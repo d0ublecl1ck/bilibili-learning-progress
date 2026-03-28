@@ -6,7 +6,7 @@ const isDev = process.env.NODE_ENV == 'development'
 
 export default defineManifest({
   name: `${packageData.displayName || packageData.name}${isDev ? ` ➡️ Dev` : ''}`,
-  description: packageData.description,
+  description: packageData.description || '统计 Bilibili 课程学习总进度的悬浮工具',
   version: packageData.version,
   manifest_version: 3,
   icons: {
@@ -27,8 +27,9 @@ export default defineManifest({
   },
   content_scripts: [
     {
-      matches: ['http://*/*', 'https://*/*'],
+      matches: ['https://www.bilibili.com/video/*'],
       js: ['src/contentScript/index.ts'],
+      run_at: 'document_idle',
     },
   ],
   side_panel: {
