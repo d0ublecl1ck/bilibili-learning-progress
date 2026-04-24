@@ -9,6 +9,7 @@ export type LearningCourseRecord = {
   completedSeconds: number
   currentIndex: number
   currentTitle: string
+  createdAt: number
   updatedAt: number
 }
 

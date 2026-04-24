@@ -15,6 +15,9 @@ import './NewTab.css'
 type LearningCoursesById = Record<string, LearningCourseRecord>
 type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'unconfigured'
 type LayoutMode = 'grid' | 'list'
+type PageSize = 20 | 50 | 100
+type SortField = 'updatedAt' | 'createdAt' | 'progress' | 'learnedDuration'
+type SortDirection = 'asc' | 'desc'
 
 type CourseViewModel = {
   course: LearningCourseRecord
@@ -34,6 +37,14 @@ type SyncFormState = {
 const LAYOUT_OPTIONS: Array<{ label: string; value: LayoutMode }> = [
   { label: '网格', value: 'grid' },
   { label: '列表', value: 'list' },
+]
+const PAGE_SIZE_OPTIONS: PageSize[] = [20, 50, 100]
+const DEFAULT_PAGE_SIZE: PageSize = 20
+const SORT_FIELD_OPTIONS: Array<{ label: string; value: SortField }> = [
+  { label: '更新时间', value: 'updatedAt' },
+  { label: '添加时间', value: 'createdAt' },
+  { label: '学习进度', value: 'progress' },
+  { label: '学习时长', value: 'learnedDuration' },
 ]
 const GITHUB_TOKEN_URL = 'https://github.com/settings/tokens?type=beta'
 const GITHUB_GISTS_URL = 'https://gist.github.com/'
@@ -70,6 +81,69 @@ function getProgressRatio(course: LearningCourseRecord): number {
 function getStoredLayout(): LayoutMode {
   const storedLayout = window.localStorage.getItem('blp:newtab-layout')
   return storedLayout === 'grid' || storedLayout === 'list' ? storedLayout : 'list'
+}
+
+function getStoredPageSize(): PageSize {
+  const storedPageSize = Number(window.localStorage.getItem('blp:newtab-page-size'))
+  return PAGE_SIZE_OPTIONS.includes(storedPageSize as PageSize)
+    ? (storedPageSize as PageSize)
+    : DEFAULT_PAGE_SIZE
+}
+
+function getStoredSortField(): SortField {
+  const storedSortField = window.localStorage.getItem('blp:newtab-sort-field')
+  return SORT_FIELD_OPTIONS.some((option) => option.value === storedSortField)
+    ? (storedSortField as SortField)
+    : 'updatedAt'
+}
+
+function getStoredSortDirection(): SortDirection {
+  const storedSortDirection = window.localStorage.getItem('blp:newtab-sort-direction')
+  return storedSortDirection === 'asc' || storedSortDirection === 'desc'
+    ? storedSortDirection
+    : 'desc'
+}
+
+function getCreatedAt(course: LearningCourseRecord): number {
+  return course.createdAt ?? course.updatedAt
+}
+
+function getSortValue(course: LearningCourseRecord, sortField: SortField): number {
+  if (sortField === 'createdAt') {
+    return getCreatedAt(course)
+  }
+
+  if (sortField === 'progress') {
+    return course.totalSeconds > 0 ? course.completedSeconds / course.totalSeconds : 0
+  }
+
+  if (sortField === 'learnedDuration') {
+    return course.completedSeconds
+  }
+
+  return course.updatedAt
+}
+
+function sortCourses(
+  courses: LearningCourseRecord[],
+  sortField: SortField,
+  sortDirection: SortDirection,
+): LearningCourseRecord[] {
+  const directionMultiplier = sortDirection === 'asc' ? 1 : -1
+
+  return [...courses].sort((first, second) => {
+    const primaryDiff = getSortValue(first, sortField) - getSortValue(second, sortField)
+
+    if (primaryDiff !== 0) {
+      return primaryDiff * directionMultiplier
+    }
+
+    return second.updatedAt - first.updatedAt
+  })
+}
+
+function clampPage(page: number, totalPages: number): number {
+  return Math.min(Math.max(page, 1), Math.max(totalPages, 1))
 }
 
 function getSyncStatusLabel(status: SyncStatus): string {
@@ -120,6 +194,10 @@ function getCourseViewModel(course: LearningCourseRecord): CourseViewModel {
 export const NewTab = () => {
   const [coursesById, setCoursesById] = useState<LearningCoursesById>({})
   const [layout, setLayout] = useState<LayoutMode>(getStoredLayout)
+  const [pageSize, setPageSize] = useState<PageSize>(getStoredPageSize)
+  const [sortField, setSortField] = useState<SortField>(getStoredSortField)
+  const [sortDirection, setSortDirection] = useState<SortDirection>(getStoredSortDirection)
+  const [currentPage, setCurrentPage] = useState(1)
   const [syncConfig, setSyncConfig] = useState<GistSyncConfig | null>(null)
   const [syncForm, setSyncForm] = useState<SyncFormState>(() => getSyncFormState(null))
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle')
@@ -131,6 +209,18 @@ export const NewTab = () => {
   useEffect(() => {
     window.localStorage.setItem('blp:newtab-layout', layout)
   }, [layout])
+
+  useEffect(() => {
+    window.localStorage.setItem('blp:newtab-page-size', String(pageSize))
+  }, [pageSize])
+
+  useEffect(() => {
+    window.localStorage.setItem('blp:newtab-sort-field', sortField)
+  }, [sortField])
+
+  useEffect(() => {
+    window.localStorage.setItem('blp:newtab-sort-direction', sortDirection)
+  }, [sortDirection])
 
   useEffect(() => {
     let cancelled = false
@@ -294,15 +384,47 @@ export const NewTab = () => {
   }
 
   const courses = useMemo(
-    () => Object.values(coursesById).sort((first, second) => second.updatedAt - first.updatedAt),
-    [coursesById],
+    () => sortCourses(Object.values(coursesById), sortField, sortDirection),
+    [coursesById, sortDirection, sortField],
   )
   const courseViews = useMemo(() => courses.map(getCourseViewModel), [courses])
   const totalCourses = courses.length
+  const totalPages = Math.max(1, Math.ceil(courseViews.length / pageSize))
+  const safeCurrentPage = clampPage(currentPage, totalPages)
+  const pageStartIndex = (safeCurrentPage - 1) * pageSize
+  const pageEndIndex = Math.min(pageStartIndex + pageSize, courseViews.length)
+  const pagedCourseViews = courseViews.slice(pageStartIndex, pageEndIndex)
+  const pageRangeLabel =
+    courseViews.length > 0
+      ? `${pageStartIndex + 1}-${pageEndIndex} / ${courseViews.length}`
+      : '0 / 0'
   const totalSeconds = courses.reduce((sum, course) => sum + course.totalSeconds, 0)
   const completedSeconds = courses.reduce((sum, course) => sum + course.completedSeconds, 0)
   const overallRatio = totalSeconds > 0 ? completedSeconds / totalSeconds : 0
   const overallPercentage = Math.min(100, Math.round(overallRatio * 100))
+
+  useEffect(() => {
+    const nextPage = clampPage(currentPage, totalPages)
+
+    if (nextPage !== currentPage) {
+      setCurrentPage(nextPage)
+    }
+  }, [currentPage, totalPages])
+
+  const updatePageSize = (nextPageSize: PageSize) => {
+    setPageSize(nextPageSize)
+    setCurrentPage(1)
+  }
+
+  const updateSortField = (nextSortField: SortField) => {
+    setSortField(nextSortField)
+    setCurrentPage(1)
+  }
+
+  const updateSortDirection = (nextSortDirection: SortDirection) => {
+    setSortDirection(nextSortDirection)
+    setCurrentPage(1)
+  }
 
   return (
     <main className="learning-page">
@@ -354,6 +476,32 @@ export const NewTab = () => {
             ⚙
           </button>
           <span className={`sync-badge ${syncStatus}`}>{getSyncStatusLabel(syncStatus)}</span>
+          <div className="list-control">
+            <label htmlFor="sort-field">排序:</label>
+            <select
+              id="sort-field"
+              aria-label="排序字段"
+              value={sortField}
+              onChange={(event) => updateSortField(event.target.value as SortField)}
+            >
+              {SORT_FIELD_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            className="sort-direction-button"
+            type="button"
+            title={
+              sortDirection === 'desc' ? '当前为降序，点击切换升序' : '当前为升序，点击切换降序'
+            }
+            aria-label={sortDirection === 'desc' ? '切换为升序' : '切换为降序'}
+            onClick={() => updateSortDirection(sortDirection === 'desc' ? 'asc' : 'desc')}
+          >
+            {sortDirection === 'desc' ? '↓' : '↑'}
+          </button>
           <div className="layout-toggle" role="group" aria-label="布局切换">
             {LAYOUT_OPTIONS.map((option) => (
               <button
@@ -456,50 +604,109 @@ export const NewTab = () => {
       ) : null}
 
       {courseViews.length > 0 ? (
-        <section className={`course-collection ${layout}`} aria-label="正在学习的课程">
-          {courseViews.map((view) => (
-            <a
-              className="course-item"
-              href={view.course.url}
-              key={view.course.videoId}
-              title={view.course.title}
-            >
-              <div className="main-info">
-                <div className="title-row">
-                  <h2>{view.course.title}</h2>
-                  <span className="source-chip">{view.sourceLabel}</span>
+        <>
+          <section className={`course-collection ${layout}`} aria-label="正在学习的课程">
+            {pagedCourseViews.map((view) => (
+              <a
+                className="course-item"
+                href={view.course.url}
+                key={view.course.videoId}
+                title={view.course.title}
+              >
+                <div className="main-info">
+                  <div className="title-row">
+                    <h2>{view.course.title}</h2>
+                    <span className="source-chip">{view.sourceLabel}</span>
+                  </div>
+                  <p>{view.course.currentTitle || '打开课程页继续学习'}</p>
                 </div>
-                <p>{view.course.currentTitle || '打开课程页继续学习'}</p>
+                <div className="meta-grid">
+                  <div>
+                    <span>BV号</span>
+                    <strong>{view.course.videoId}</strong>
+                  </div>
+                  <div>
+                    <span>位置</span>
+                    <strong>{view.currentIndexLabel}</strong>
+                  </div>
+                  <div>
+                    <span>更新</span>
+                    <strong>{view.updatedAtLabel}</strong>
+                  </div>
+                </div>
+                <div className="progress-block">
+                  <div className="progress-head">
+                    <span>
+                      {formatDuration(view.course.completedSeconds)} /{' '}
+                      {formatDuration(view.course.totalSeconds)}
+                    </span>
+                    <strong>{view.percentage}%</strong>
+                  </div>
+                  <div className="progress-track" aria-hidden="true">
+                    <div className="progress-fill" style={{ width: `${view.ratio * 100}%` }} />
+                  </div>
+                </div>
+              </a>
+            ))}
+          </section>
+          <section className="pagination-bar" aria-label="分页控制">
+            <span>当前显示 {pageRangeLabel} 条</span>
+            <div className="pagination-controls">
+              <div className="list-control">
+                <label htmlFor="page-size">每页展示:</label>
+                <select
+                  id="page-size"
+                  aria-label="每页条数"
+                  value={pageSize}
+                  onChange={(event) => updatePageSize(Number(event.target.value) as PageSize)}
+                >
+                  {PAGE_SIZE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option} 条
+                    </option>
+                  ))}
+                </select>
               </div>
-              <div className="meta-grid">
-                <div>
-                  <span>BV号</span>
-                  <strong>{view.course.videoId}</strong>
+              <div className="pagination-actions">
+                <button
+                  type="button"
+                  aria-label="上一页"
+                  disabled={safeCurrentPage <= 1}
+                  onClick={() => setCurrentPage((page) => clampPage(page - 1, totalPages))}
+                >
+                  <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2.5"
+                      d="M15 19l-7-7 7-7"
+                    />
+                  </svg>
+                </button>
+                <div className="page-indicator">
+                  <span>第</span>
+                  <input readOnly value={safeCurrentPage} aria-label="当前页" />
+                  <span>/ {totalPages} 页</span>
                 </div>
-                <div>
-                  <span>位置</span>
-                  <strong>{view.currentIndexLabel}</strong>
-                </div>
-                <div>
-                  <span>更新</span>
-                  <strong>{view.updatedAtLabel}</strong>
-                </div>
+                <button
+                  type="button"
+                  aria-label="下一页"
+                  disabled={safeCurrentPage >= totalPages}
+                  onClick={() => setCurrentPage((page) => clampPage(page + 1, totalPages))}
+                >
+                  <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2.5"
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </button>
               </div>
-              <div className="progress-block">
-                <div className="progress-head">
-                  <span>
-                    {formatDuration(view.course.completedSeconds)} /{' '}
-                    {formatDuration(view.course.totalSeconds)}
-                  </span>
-                  <strong>{view.percentage}%</strong>
-                </div>
-                <div className="progress-track" aria-hidden="true">
-                  <div className="progress-fill" style={{ width: `${view.ratio * 100}%` }} />
-                </div>
-              </div>
-            </a>
-          ))}
-        </section>
+            </div>
+          </section>
+        </>
       ) : (
         <section className="empty-card">
           <div className="empty-icon">☆</div>

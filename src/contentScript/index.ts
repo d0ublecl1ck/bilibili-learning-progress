@@ -123,6 +123,7 @@ function writeLearningCourses(courses: Record<string, LearningCourseRecord>): vo
 function getCourseRecord(
   snapshot: ProgressSnapshot,
   isPinned: boolean,
+  existingRecord?: LearningCourseRecord,
 ): LearningCourseRecord | null {
   if (!snapshot.videoId) {
     return null
@@ -140,6 +141,7 @@ function getCourseRecord(
     currentIndex: snapshot.currentIndex,
     currentTitle:
       snapshot.currentIndex >= 0 ? (snapshot.lessons[snapshot.currentIndex]?.title ?? '') : '',
+    createdAt: existingRecord?.createdAt ?? existingRecord?.updatedAt ?? Date.now(),
     updatedAt: Date.now(),
   }
 }
@@ -165,7 +167,7 @@ function syncLearningCourse(snapshot: ProgressSnapshot): void {
       return
     }
 
-    const nextRecord = getCourseRecord(snapshot, existingRecord?.isPinned === true)
+    const nextRecord = getCourseRecord(snapshot, existingRecord?.isPinned === true, existingRecord)
 
     if (!nextRecord) {
       return
@@ -197,7 +199,7 @@ function togglePinnedCourse(
   readLearningCourses((courses) => {
     const existingRecord = courses[videoId]
     const nextPinned = existingRecord?.isPinned !== true
-    const nextRecord = getCourseRecord(snapshot, nextPinned)
+    const nextRecord = getCourseRecord(snapshot, nextPinned, existingRecord)
 
     if (!nextRecord) {
       callback(false)
