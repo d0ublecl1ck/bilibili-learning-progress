@@ -1,0 +1,28 @@
+schema: spec-driven
+
+context: |
+  项目：Bilibili Learning Progress Chrome 扩展。
+  技术栈：TypeScript、React 18、Vite、Chrome Extension Manifest V3。
+  存储：课程学习记录保存在 chrome.storage.local；章节匹配规则按 BV 号保存在 Bilibili 页面 localStorage；Gist 同步配置保存在 chrome.storage.local。
+  外部 API：GitHub Gist REST API，仅用于学习记录 JSON 文件的拉取、合并和推送。
+  关键约束：GitHub Token 不得写入源码、日志、URL 或 Gist JSON 内容；UI 优先实用、紧凑、清晰。
+  验证：功能变更至少运行 npm run build。
+
+rules:
+  proposal:
+    - 用中文编写。
+    - 明确列出非目标和受影响能力。
+    - 对涉及 Token、外部网络、同步策略或存储结构的变更说明安全边界。
+    - 用简短 ASCII 图说明核心数据流或状态流。
+  design:
+    - 用中文编写。
+    - 说明数据模型、合并策略、失败处理和用户反馈。
+    - 对可能覆盖远端或本地数据的流程列出防护策略。
+  tasks:
+    - 用中文编写。
+    - 任务应可逐项验证。
+    - 最后必须包含 npm run build 验证项。
+  specs:
+    - 用中文编写。
+    - 每个 Requirement 至少包含一个 Scenario。
+    - 使用 MUST/必须 描述强制行为。
