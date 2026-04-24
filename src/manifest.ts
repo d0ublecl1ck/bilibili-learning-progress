@@ -19,6 +19,9 @@ export default defineManifest({
     default_popup: 'popup.html',
     default_icon: 'img/logo-48.png',
   },
+  chrome_url_overrides: {
+    newtab: 'newtab.html',
+  },
   options_page: 'options.html',
   devtools_page: 'devtools.html',
   background: {
@@ -42,4 +45,5 @@ export default defineManifest({
     },
   ],
   permissions: ['sidePanel', 'storage'],
+  host_permissions: ['https://api.github.com/*'],
 })
